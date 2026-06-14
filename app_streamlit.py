@@ -24,13 +24,22 @@ def predict_match(elo_a, elo_b, odd_a, odd_draw, odd_b):
             'OddHome': odd_home, 'OddDraw': odd_draw, 'OddAway': odd_away,
         }])
 
+    def _build_row_ext(home_elo, away_elo, odd_home, odd_away, pred_home, pred_away):
+        row = _build_row(home_elo, away_elo, odd_home, odd_away)
+        row['PredGoalsHome'] = pred_home
+        row['PredGoalsAway'] = pred_away
+        return row
+
+    # Goles primero
     pred1   = np.expm1(model_goals.predict(_build_row(elo_a, elo_b, odd_a, odd_b))[0])
     pred2   = np.expm1(model_goals.predict(_build_row(elo_b, elo_a, odd_b, odd_a))[0])
     goals_a = float(np.clip((pred1[0] + pred2[1]) / 2, 0, None))
     goals_b = float(np.clip((pred1[1] + pred2[0]) / 2, 0, None))
 
-    proba1  = model_result.predict_proba(_build_row(elo_a, elo_b, odd_a, odd_b))[0]
-    proba2  = model_result.predict_proba(_build_row(elo_b, elo_a, odd_b, odd_a))[0]
+    # Clasificador con goles incluidos en el row
+    proba1  = model_result.predict_proba(_build_row_ext(elo_a, elo_b, odd_a, odd_b, goals_a, goals_b))[0]
+    proba2  = model_result.predict_proba(_build_row_ext(elo_b, elo_a, odd_b, odd_a, goals_b, goals_a))[0]
+
     classes = model_result.classes_
     idx_H   = list(classes).index('H')
     idx_D   = list(classes).index('D')
@@ -51,7 +60,6 @@ def predict_match(elo_a, elo_b, odd_a, odd_draw, odd_b):
         'prob_draw': round(float(prob_D), 3),
         'prob_b':    round(float(prob_B), 3),
     }
-
 
 # ── UI ────────────────────────────────────────────────────────────────────────
 st.title("⚽ Predictor de Partidos")
