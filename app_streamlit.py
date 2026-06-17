@@ -3,8 +3,14 @@ import joblib
 import numpy as np
 import pandas as pd
 
-model_goals  = joblib.load('modelo_goles.pkl')
-model_result = joblib.load('modelo_resultado.pkl')
+@st.cache_resource
+def load_models():
+    model_goals  = joblib.load('modelo_goles.pkl')
+    model_result = joblib.load('modelo_resultado.pkl')
+    le           = joblib.load('label_encoder.pkl')
+    return model_goals, model_result, le
+
+model_goals, model_result, le = load_models()
 
 
 def predict_match(elo_a, elo_b, odd_a, odd_draw, odd_b):
@@ -30,20 +36,17 @@ def predict_match(elo_a, elo_b, odd_a, odd_draw, odd_b):
         row['PredGoalsAway'] = pred_away
         return row
 
-    # Goles primero
     pred1   = np.expm1(model_goals.predict(_build_row(elo_a, elo_b, odd_a, odd_b))[0])
     pred2   = np.expm1(model_goals.predict(_build_row(elo_b, elo_a, odd_b, odd_a))[0])
     goals_a = float(np.clip((pred1[0] + pred2[1]) / 2, 0, None))
     goals_b = float(np.clip((pred1[1] + pred2[0]) / 2, 0, None))
 
-    # Clasificador con goles incluidos en el row
-    proba1  = model_result.predict_proba(_build_row_ext(elo_a, elo_b, odd_a, odd_b, goals_a, goals_b))[0]
-    proba2  = model_result.predict_proba(_build_row_ext(elo_b, elo_a, odd_b, odd_a, goals_b, goals_a))[0]
+    proba1 = model_result.predict_proba(_build_row_ext(elo_a, elo_b, odd_a, odd_b, goals_a, goals_b))[0]
+    proba2 = model_result.predict_proba(_build_row_ext(elo_b, elo_a, odd_b, odd_a, goals_b, goals_a))[0]
 
-    classes = model_result.classes_
-    idx_H   = list(classes).index('H')
-    idx_D   = list(classes).index('D')
-    idx_A   = list(classes).index('A')
+    idx_A = list(le.classes_).index('A')
+    idx_D = list(le.classes_).index('D')
+    idx_H = list(le.classes_).index('H')
 
     prob_A = (proba1[idx_H] + proba2[idx_A]) / 2
     prob_D = (proba1[idx_D] + proba2[idx_D]) / 2
@@ -60,6 +63,7 @@ def predict_match(elo_a, elo_b, odd_a, odd_draw, odd_b):
         'prob_draw': round(float(prob_D), 3),
         'prob_b':    round(float(prob_B), 3),
     }
+
 
 # ── UI ────────────────────────────────────────────────────────────────────────
 st.title("⚽ Predictor de Partidos")
@@ -82,26 +86,28 @@ with col5: odd_b    = st.number_input("Gana B",  value=4.30, step=0.01)
 st.divider()
 
 if st.button("Predecir", use_container_width=True, type="primary"):
-    res = predict_match(elo_a, elo_b, odd_a, odd_draw, odd_b)
+    with st.spinner("Calculando..."):
+        res = predict_match(elo_a, elo_b, odd_a, odd_draw, odd_b)
 
-    # ── Goles ────────────────────────────────────────────────────────────────
+    # ── Goles ─────────────────────────────────────────────────────────────────
     st.subheader("Goles estimados")
     col6, col7, col8 = st.columns([2, 1, 2])
     with col6:
-        st.metric("Equipo A", f"{res['goals_a']}")
+        delta_a = round(res['goals_a'] - res['goals_b'], 2)
+        st.metric("Equipo A", res['goals_a'], delta=delta_a if delta_a > 0 else None)
     with col7:
         st.markdown("<h3 style='text-align:center;margin-top:20px'>VS</h3>", unsafe_allow_html=True)
     with col8:
-        st.metric("Equipo B", f"{res['goals_b']}")
+        delta_b = round(res['goals_b'] - res['goals_a'], 2)
+        st.metric("Equipo B", res['goals_b'], delta=delta_b if delta_b > 0 else None)
 
-    # ── Resultado ─────────────────────────────────────────────────────────────
+    # ── Resultado ──────────────────────────────────────────────────────────────
     st.divider()
-    st.subheader("Resultado esperado")
-
     color = {"Gana A": "🟢", "Empate": "🟡", "Gana B": "🔵"}
-    st.markdown(f"### {color[res['resultado']]} {res['resultado']}")
+    st.subheader(f"Resultado esperado:  {color[res['resultado']]} {res['resultado']}")
 
-    # ── Probabilidades ────────────────────────────────────────────────────────
+    # ── Probabilidades ─────────────────────────────────────────────────────────
+    st.divider()
     st.subheader("Probabilidades")
     col9, col10, col11 = st.columns(3)
     with col9:
